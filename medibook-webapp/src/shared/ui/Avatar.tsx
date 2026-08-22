@@ -2,7 +2,7 @@ interface AvatarProps {
   name?: string;
   /** Diameter in px — data-driven, hence style. */
   size?: number;
-  src?: string;
+  src?: string | null;
   /** Per-item background color from data (e.g. department accents). */
   bg?: string;
 }

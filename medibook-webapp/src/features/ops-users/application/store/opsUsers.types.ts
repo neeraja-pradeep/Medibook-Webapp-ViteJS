@@ -29,7 +29,7 @@ export interface OpsUser {
 export interface OpsCurrentUser {
   readonly name: string;
   readonly role: OpsRole;
-  readonly av: string;
+  readonly av: string | null;
 }
 
 /** Role annotation — what a role can and cannot do, shown before assigning. */

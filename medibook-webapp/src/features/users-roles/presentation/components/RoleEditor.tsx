@@ -19,10 +19,8 @@ import {
   type RbacModule,
   type Role,
 } from '@/features/users-roles/application/store/rbac.types';
-import {
-  AccessSummary,
-  accessBuckets,
-} from '@/features/users-roles/presentation/components/AccessSummary';
+import { accessBuckets } from '@/features/users-roles/presentation/components/access-buckets';
+import { AccessSummary } from '@/features/users-roles/presentation/components/AccessSummary';
 import { PermCheck } from '@/features/users-roles/presentation/components/PermCheck';
 
 const PERM_COLS: readonly (readonly [PermAction, string])[] = [

@@ -1,3 +1,4 @@
+import { useNow } from '@/shared/hooks/useNow';
 import { cn } from '@/shared/lib/cn';
 import { Button } from '@/shared/ui/Button';
 import { Card } from '@/shared/ui/Card';
@@ -44,13 +45,14 @@ export function DoctorQueueCard({ doctor }: DoctorQueueCardProps) {
   const skip = useAppointmentsStore((s) => s.skip);
   const setDocStatus = useAppointmentsStore((s) => s.setDocStatus);
 
+  const now = useNow(30000);
   const meta = DOCTOR_META[doctor];
   const status = docStatus[doctor] ?? 'Available';
   const tok = serving[doctor];
   const servingAppt = tok ? appts.find((a) => a.token === tok && a.doctor === doctor) : null;
   const elapsed =
     servingAppt && servingAppt.calledAt
-      ? Math.max(0, Math.round((Date.now() - servingAppt.calledAt) / 60000))
+      ? Math.max(0, Math.round((now - servingAppt.calledAt) / 60000))
       : null;
   const queue = queueForDoctor(doctor);
   const upNext = queue.slice(0, 3);

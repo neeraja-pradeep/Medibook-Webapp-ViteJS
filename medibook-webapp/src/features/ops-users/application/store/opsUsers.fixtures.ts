@@ -20,7 +20,7 @@ export const OPS_USERS: readonly OpsUser[] = [
     twofa: 'Enabled',
     lastActive: 'Just now',
     status: 'Active',
-    av: '/assets/avatar-riya.png',
+    av: null,
   },
   {
     id: 2,
@@ -88,7 +88,7 @@ export const OPS_USERS: readonly OpsUser[] = [
 export const OPS_USER: OpsCurrentUser = {
   name: 'Riya Sharma',
   role: 'Super Admin',
-  av: '/assets/avatar-riya.png',
+  av: null,
 };
 
 /**

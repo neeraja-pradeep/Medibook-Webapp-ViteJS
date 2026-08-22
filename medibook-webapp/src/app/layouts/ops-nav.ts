@@ -96,5 +96,7 @@ export const OPS_META: Readonly<Record<OpsView, readonly [string, string]>> = {
 export const OPS_USER = {
   name: 'Riya Sharma',
   role: 'Super Admin',
-  av: '/assets/avatar-riya.png',
+  // The source bundle's avatar-riya.png is a blank/transparent placeholder, so
+  // fall back to "RS" initials (the design system's photoless-avatar pattern).
+  av: null,
 } as const;

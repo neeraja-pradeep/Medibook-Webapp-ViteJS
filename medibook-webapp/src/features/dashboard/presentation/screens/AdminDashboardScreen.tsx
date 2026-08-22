@@ -18,10 +18,8 @@ import { useAppointmentsStore } from '@/features/appointments/application/store/
 import { DOCTOR_META } from '@/features/appointments/application/store/appointments.types';
 import { useSettlementsStore } from '@/features/settlements/application/store/settlements.store';
 
-import {
-  OverviewHeader,
-  type Period,
-} from '@/features/dashboard/presentation/components/OverviewHeader';
+import { OverviewHeader } from '@/features/dashboard/presentation/components/OverviewHeader';
+import type { Period } from '@/features/dashboard/presentation/components/period';
 
 /** Appointments-by-department bars (design `AD_DEPT`), per-bar colours from data. */
 const AD_DEPT: readonly { l: string; v: number; color: string }[] = [

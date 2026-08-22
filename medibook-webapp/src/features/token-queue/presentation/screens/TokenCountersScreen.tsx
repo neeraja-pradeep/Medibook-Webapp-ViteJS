@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
+import { useNow } from '@/shared/hooks/useNow';
 import { cn } from '@/shared/lib/cn';
 import { Card } from '@/shared/ui/Card';
 import { FilterSelect } from '@/shared/ui/FilterSelect';
@@ -30,11 +31,8 @@ export function TokenCountersScreen() {
 
   const [q, setQ] = useState('');
   const [docF, setDocF] = useState('All Doctors');
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => tick((n) => n + 1), 30000);
-    return () => clearInterval(id);
-  }, []);
+  // Re-render every 30s so the elapsed timers stay live (design behaviour).
+  const now = useNow(30000);
 
   const dept = activeDept || 'All Departments';
   const inDept = Object.keys(DOCTOR_META).filter(
@@ -52,7 +50,7 @@ export function TokenCountersScreen() {
   const breakCount = doctors.filter((d) => docStatus[d] === 'On Break').length;
   const longest = doctors.reduce((mx, d) => {
     const a = appts.find((x) => x.token === serving[d] && x.doctor === d);
-    if (a && a.calledAt) return Math.max(mx, Math.round((Date.now() - a.calledAt) / 60000));
+    if (a && a.calledAt) return Math.max(mx, Math.round((now - a.calledAt) / 60000));
     return mx;
   }, 0);
 
