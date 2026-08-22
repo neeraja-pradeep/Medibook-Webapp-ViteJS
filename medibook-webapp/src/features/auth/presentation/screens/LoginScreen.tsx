@@ -1,42 +1,173 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { cn } from '@/shared/lib/cn';
 import { Button } from '@/shared/ui/Button';
-import { Card } from '@/shared/ui/Card';
+import { Icon } from '@/shared/ui/Icon';
 
-import { hospitalDashboardPath, opsPath } from '@/app/router/paths';
+import { AUTH_FORGOT_PATH, hospitalDashboardPath, opsPath } from '@/app/router/paths';
+
+import { APOLLO_HID } from '@/core/config/demo';
 
 import { useAuthStore } from '@/features/auth/application/store/auth.store';
+import { AuthField } from '@/features/auth/presentation/components/AuthField';
+import { BrandPanel } from '@/features/auth/presentation/components/BrandPanel';
+import { useHospitalsStore } from '@/features/ops-hospitals/application/store/hospitals.store';
+
+type LoginMode = 'hospital' | 'ops';
+
+const MODES: readonly (readonly [LoginMode, string])[] = [
+  ['hospital', 'Hospital Login'],
+  ['ops', 'Operations Login'],
+];
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /**
- * Placeholder — the auth feature agent ports the real screen next (spec §6).
- * The two buttons are wired to the real auth store so both shells are
- * manually verifiable: hospital login lands on the admin role.
+ * Login screen (design `Auth.jsx` `Login`): the Hospital/Operations segmented
+ * toggle, "Welcome Back" heading, email + password fields, the remember-me /
+ * ops lock note, forgot-password link, email validation, the Apollo suspension
+ * gate, and the login → dashboard navigation.
  */
 export function LoginScreen() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const apolloSuspended = useHospitalsStore(
+    (s) => s.hospitals.find((h) => h.id === APOLLO_HID)?.status === 'Suspended',
+  );
+
+  const [mode, setMode] = useState<LoginMode>('hospital');
+  const [email, setEmail] = useState('s.nair@apollo.med');
+  const [pwd, setPwd] = useState('••••••••');
+  const [show, setShow] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [err, setErr] = useState('');
+  const isOps = mode === 'ops';
+
+  const pick = (m: LoginMode) => {
+    if (m === mode) return;
+    setMode(m);
+    setErr('');
+    setEmail(m === 'ops' ? 'a.rao@medibook.com' : 's.nair@apollo.med');
+  };
+
+  const go = () => {
+    if (!email.trim() || !pwd.trim()) {
+      setErr('Enter your email and password to continue.');
+      return;
+    }
+    if (!EMAIL_RE.test(email.trim())) {
+      setErr('Enter a valid email address.');
+      return;
+    }
+    setErr('');
+    if (!isOps && apolloSuspended) {
+      setErr(
+        "This hospital's Medibook instance is suspended by operations. Contact support@medibook.in to reactivate.",
+      );
+      return;
+    }
+    if (isOps) {
+      login('ops');
+      navigate(opsPath('dashboard'));
+    } else {
+      login('hospital');
+      navigate(hospitalDashboardPath('admin'));
+    }
+  };
+
   return (
-    <div className="flex h-full items-center justify-center">
-      <Card className="flex w-83 flex-col gap-3">
-        <div className="text-h3 text-text-strong">{'Login — being ported'}</div>
-        <Button
-          onClick={() => {
-            login('hospital');
-            navigate(hospitalDashboardPath('admin'));
-          }}
-        >
-          Hospital login
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            login('ops');
-            navigate(opsPath('dashboard'));
-          }}
-        >
-          Ops login
-        </Button>
-      </Card>
+    <div className="flex h-full bg-white">
+      <BrandPanel />
+      <div className="flex flex-1 items-center justify-center overflow-y-auto p-10">
+        <div className="w-full max-w-100">
+          <div className="border-border-input bg-bg-subtle mb-7.5 flex gap-1 rounded-md border p-1">
+            {MODES.map(([k, l]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => pick(k)}
+                className={cn(
+                  'flex-1 cursor-pointer rounded-sm py-2.25 text-center text-[13px] transition-colors duration-150',
+                  mode === k
+                    ? 'text-text-navy shadow-card bg-white font-semibold'
+                    : 'text-text-muted bg-transparent font-medium',
+                )}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <div className="text-display text-text-strong mb-2">Welcome Back</div>
+          <p className="text-body text-text-muted mb-8">
+            {isOps
+              ? 'Sign in to the Medibook operations console.'
+              : "Sign in to your hospital's mbAdmin panel."}
+          </p>
+          <div className="flex flex-col gap-5">
+            <AuthField
+              label="Email Address"
+              value={email}
+              onChange={(v) => {
+                setEmail(v);
+                if (err) setErr('');
+              }}
+              placeholder={isOps ? 'you@medibook.com' : 'you@hospital.med'}
+            />
+            <AuthField
+              label="Password"
+              type={show ? 'text' : 'password'}
+              value={pwd}
+              onChange={(v) => {
+                setPwd(v);
+                if (err) setErr('');
+              }}
+              trailing={
+                <button type="button" onClick={() => setShow((s) => !s)} className="flex">
+                  <Icon name={show ? 'eye-off' : 'eye'} size={18} />
+                </button>
+              }
+            />
+            {err && (
+              <div className="text-caption text-danger bg-d-100 flex items-center gap-2 rounded-sm px-3 py-2.5">
+                <Icon name="triangle-alert" size={15} /> {err}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              {isOps ? (
+                <span className="text-caption text-text-muted inline-flex items-center gap-1.75">
+                  <Icon name="lock" size={14} /> Sessions aren't remembered — sign in each time.
+                </span>
+              ) : (
+                <label className="text-body text-text-body flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                    className="accent-blue size-4"
+                  />{' '}
+                  Remember me
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate(AUTH_FORGOT_PATH)}
+                className="text-body text-link shrink-0 cursor-pointer font-medium"
+              >
+                Forgot Password?
+              </button>
+            </div>
+            <Button variant="info" className="h-13.5 w-full rounded-sm" onClick={go}>
+              Login
+            </Button>
+          </div>
+          <p className="text-caption text-text-faint mt-7 text-center">
+            {isOps
+              ? 'Restricted to Medibook operations staff.'
+              : 'Trouble signing in? Contact your hospital administrator.'}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

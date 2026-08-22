@@ -1,6 +1,742 @@
-import { Card } from '@/shared/ui/Card';
+import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 
-/** Placeholder — the ops-hospitals feature agent ports the real screen next (spec §6). */
+import { OPS_BASE_PATH, OPS_VIEW_SEGMENT, opsPath } from '@/app/router/paths';
+import { SETTLE_COMMISSION } from '@/core/config/demo';
+import { useSort } from '@/shared/hooks/useSort';
+import { useOpsAct } from '@/shared/hooks/useOpsAct';
+import { cn } from '@/shared/lib/cn';
+import { fmtDate, money, moneyShort } from '@/shared/lib/format';
+import { toast } from '@/shared/ui/toast/toast.store';
+import { Avatar } from '@/shared/ui/Avatar';
+import { Badge } from '@/shared/ui/Badge';
+import { Button } from '@/shared/ui/Button';
+import { Card } from '@/shared/ui/Card';
+import { FilterSelect } from '@/shared/ui/FilterSelect';
+import { Icon } from '@/shared/ui/Icon';
+import { IconBtn } from '@/shared/ui/IconBtn';
+import { InfoGrid, type InfoGridItem } from '@/shared/ui/InfoGrid';
+import { OpsConfirm } from '@/shared/ui/OpsConfirm';
+import { OpsField } from '@/shared/ui/OpsField';
+import { SectionTitle } from '@/shared/ui/SectionTitle';
+import { Select } from '@/shared/ui/Select';
+import { StatCard, type StatCardData } from '@/shared/ui/StatCard';
+import { TableShell, tdClass } from '@/shared/ui/TableShell';
+import { Tabs } from '@/shared/ui/Tabs';
+
+import { usePlansStore } from '@/features/ops-plans/application/store/plans.store';
+import { useBillingStore } from '@/features/ops-billing/application/store/billing.store';
+import { useLogsStore } from '@/features/ops-logs/application/store/logs.store';
+import { useSettlementsStore } from '@/features/settlements/application/store/settlements.store';
+import { useOpsSettlementsStore } from '@/features/ops-settlements/application/store/opsSettlements.store';
+import { useOpsSettingsStore } from '@/features/ops-settings/application/store/opsSettings.store';
+import {
+  bankOf,
+  gstinOf,
+  hospName,
+  kycOf,
+  opsBookingsFor,
+  opsDeptsFor,
+  opsDocsFor,
+  useHospitalsStore,
+} from '@/features/ops-hospitals/application/store/hospitals.store';
+import { KYC_DOCS } from '@/features/ops-hospitals/application/store/hospitals.fixtures';
+import type { OpsDoctor } from '@/features/ops-hospitals/application/store/hospitals.types';
+
+/** Which lifecycle dialog is open. */
+type DetailModal = 'approve' | 'reject' | 'suspend' | null;
+
+/** Detail-page path builder for a billing sub-record (reuses the route table). */
+const billingDetailPath = (view: 'invoice-detail' | 'payment-detail', id: number): string =>
+  `${OPS_BASE_PATH}/${OPS_VIEW_SEGMENT[view].replace(':id', String(id))}`;
+
 export function OpsHospitalDetailScreen() {
-  return <Card>{'Ops Hospital Detail — being ported'}</Card>;
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const hospitals = useHospitalsStore((s) => s.hospitals);
+  const approve = useHospitalsStore((s) => s.approve);
+  const reject = useHospitalsStore((s) => s.reject);
+  const toggleSuspend = useHospitalsStore((s) => s.toggleSuspend);
+  const plans = usePlansStore((s) => s.plans);
+  const invoices = useBillingStore((s) => s.invoices);
+  const payments = useBillingStore((s) => s.payments);
+  const apolloSettlements = useSettlementsStore((s) => s.settlements);
+  const opsSettlements = useOpsSettlementsStore((s) => s.settlements);
+  const logs = useLogsStore((s) => s.logs);
+  const commission = useOpsSettingsStore((s) => s.settings.commission);
+
+  const [modal, setModal] = useState<DetailModal>(null);
+  const [reason, setReason] = useState('');
+  const [tab, setTab] = useState('Overview');
+  const [docDeptF, setDocDeptF] = useState('All');
+  const { sort: dSort, onSort: dOnSort, sorted: dSorted } = useSort<OpsDoctor>();
+  const [busy, run] = useOpsAct();
+
+  const numId = Number(id);
+  const h = hospitals.find((x) => x.id === numId) ?? hospitals[0];
+  if (!h) return null;
+
+  /** Effective platform commission rate (design `opsComm`). */
+  const opsComm = (): number => {
+    const n = parseFloat(commission);
+    return isFinite(n) && n >= 0 && n <= 100 ? n / 100 : SETTLE_COMMISSION;
+  };
+  /** Monthly booking quota for a plan name (design `opsPlanQuota`). */
+  const opsPlanQuota = (name: string): number => {
+    const p = plans.find((x) => x.name === name);
+    return p ? p.quota : 1500;
+  };
+
+  const limit = opsPlanQuota(h.plan);
+  const bank = bankOf(h.id);
+  const quota = Math.min(100, Math.round((h.bookings / limit) * 100));
+  const suspended = h.status === 'Suspended';
+  const kyc = kycOf(h);
+  const kycMissing = KYC_DOCS.filter(([k]) => kyc[k] === 'Missing').map(([, l]) => l);
+  const kycReady = kycMissing.length === 0;
+  const gstin = gstinOf(h);
+  const depts = opsDeptsFor(h);
+  const invs = invoices.filter((v) => v.hid === h.id);
+  const pays = payments.filter((v) => v.hid === h.id);
+  const comm = opsComm();
+  const setts = [...apolloSettlements, ...opsSettlements]
+    .filter((r) => r.hid === h.id)
+    .map((r) => ({
+      id: r.id,
+      period: r.period,
+      expected: r.expected,
+      status: r.status,
+      utr: r.utr,
+      net: 'net' in r && typeof r.net === 'number' ? r.net : Math.round(r.gross * (1 - comm)),
+    }));
+  const acts = logs.filter((l) => l.hid === h.id || String(l.action).includes(h.name)).slice(0, 8);
+  const allDocs = opsDocsFor(h);
+  const docs = dSorted(docDeptF === 'All' ? allDocs : allDocs.filter((d) => d.dept === docDeptF), {
+    name: (d) => d.name,
+    dept: (d) => d.dept,
+    room: (d) => d.room,
+    fee: (d) => d.fee,
+    rating: (d) => parseFloat(d.rating),
+    status: (d) => d.status,
+  });
+
+  const planPrice = plans.find((p) => p.name === h.plan)?.price ?? 0;
+
+  const KPIS: readonly StatCardData[] = [
+    {
+      icon: 'calendar-check',
+      label: 'Bookings This Month',
+      value: h.bookings.toLocaleString('en-IN'),
+      sub: '+4.6% vs last week',
+      iconClass: 'bg-blue-soft-bg text-text-navy',
+      valueClass: 'text-text-navy',
+      subClass: 'text-g-600',
+    },
+    {
+      icon: 'indian-rupee',
+      label: 'Monthly Revenue',
+      value: moneyShort(h.bookings * 45),
+      sub: '+8.2% vs last week',
+      iconClass: 'bg-g-100 text-g-600',
+      valueClass: 'text-g-600',
+      subClass: 'text-g-600',
+    },
+    {
+      icon: 'users',
+      label: 'Active Staff',
+      value: String(Math.max(8, Math.round(h.bookings / 30))),
+      sub: 'Doctors, staff and admins',
+      iconClass: 'bg-blue-soft-bg text-blue',
+      valueClass: 'text-blue',
+    },
+    {
+      icon: 'ticket',
+      label: 'Booking Quota',
+      value: `${quota}%`,
+      sub: `${h.bookings.toLocaleString('en-IN')} of ${limit.toLocaleString('en-IN')} bookings used`,
+      iconClass: quota >= 90 ? 'bg-badge-noshow-bg text-orange' : 'bg-blue-soft-bg text-blue',
+      valueClass: quota >= 90 ? 'text-orange' : 'text-blue',
+    },
+  ];
+
+  const infoItems: InfoGridItem[] = [
+    { k: 'Admin Email', v: h.email },
+    { k: 'Phone', v: h.phone, num: true },
+    { k: 'Location', v: `${h.city}${h.st ? ', ' + h.st : ''}` },
+    { k: 'Plan', v: h.plan },
+    { k: 'Onboarded', v: h.onboarded },
+    { k: 'Instance ID', v: `MB-HOSP-0${100 + h.id}`, num: true },
+    { k: 'GSTIN', v: gstin || 'Not on file', num: Boolean(gstin) },
+    {
+      k: 'Payout Account',
+      v: bank
+        ? `${bank.bank} ····${String(bank.account).slice(-4)}`
+        : 'Not added — hospital adds it in Hospital Settings',
+      num: Boolean(bank),
+    },
+    { k: 'IFSC', v: bank ? bank.ifsc : '—', num: Boolean(bank) },
+    { k: 'Settlement UPI', v: bank && bank.upi ? bank.upi : '—' },
+    ...(h.status === 'Rejected' && h.rejectReason
+      ? [{ k: 'Rejection Reason', v: h.rejectReason }]
+      : []),
+  ];
+
+  const attemptApprove = () => {
+    if (!kycReady) {
+      toast(`Cannot approve — ${kycMissing.join(', ')} not received.`, 'error');
+      return;
+    }
+    setModal('approve');
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Card>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="bg-blue-soft-bg text-text-navy flex size-14 flex-none items-center justify-center rounded-lg">
+            <Icon name="building-2" size={26} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <SectionTitle size={20}>{hospName(h.id)}</SectionTitle>
+              <Badge status={h.status} />
+            </div>
+            <span className="text-caption text-text-muted">
+              {h.email} · {h.phone} · {h.city}
+              {h.st ? `, ${h.st}` : ''}
+            </span>
+          </div>
+          <div className="flex-1"></div>
+          <div className="flex gap-3">
+            {h.status === 'Pending verification' ? (
+              <>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setReason('');
+                    setModal('reject');
+                  }}
+                >
+                  Reject
+                </Button>
+                <Button
+                  icon="circle-check"
+                  onClick={attemptApprove}
+                  className={cn(!kycReady && 'opacity-60')}
+                >
+                  Approve &amp; Go Live
+                </Button>
+              </>
+            ) : h.status === 'Rejected' ? (
+              <Button
+                variant="secondary"
+                onClick={attemptApprove}
+                className={cn(!kycReady && 'opacity-60')}
+              >
+                Re-review &amp; Approve
+              </Button>
+            ) : (
+              <>
+                <Button variant="secondary" onClick={() => setModal('suspend')}>
+                  {suspended ? 'Reactivate Instance' : 'Suspend Instance'}
+                </Button>
+                <Button onClick={() => navigate(opsPath('plans'))}>Manage Plan</Button>
+              </>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card pad={14}>
+        <Tabs
+          tabs={['Overview', 'Departments', 'Doctors', 'Billing & Settlements', 'Activity']}
+          value={tab}
+          onChange={setTab}
+        />
+      </Card>
+
+      {tab === 'Overview' && (
+        <>
+          <InfoGrid items={infoItems} />
+          <Card>
+            <div className="mb-1 flex items-center gap-2.5">
+              <SectionTitle>Verification &amp; KYC</SectionTitle>
+              {(h.status === 'Pending verification' || h.status === 'Rejected') && (
+                <Badge status={kycReady ? 'Completed' : 'Pending'}>
+                  {kycReady ? 'Ready for review' : 'Documents incomplete'}
+                </Badge>
+              )}
+            </div>
+            <div className="text-caption text-text-muted mb-3.5">
+              Documents are requested from the admin email at onboarding. Every document must be
+              submitted before the instance can be approved.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {KYC_DOCS.map(([k, label]) => {
+                const st = kyc[k];
+                return (
+                  <div
+                    key={k}
+                    className="border-border-soft flex items-center gap-3 rounded-md border px-3.5 py-3"
+                  >
+                    <div
+                      className={cn(
+                        'flex size-9 flex-none items-center justify-center rounded-md',
+                        st === 'Missing' ? 'bg-d-100 text-d-500' : 'bg-blue-soft-bg text-text-navy',
+                      )}
+                    >
+                      <Icon name="file-text" size={17} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-body text-text-strong font-medium">{label}</div>
+                      <div className="text-caption text-text-muted">
+                        {st === 'Missing'
+                          ? 'Not received'
+                          : st === 'Submitted'
+                            ? 'Received · awaiting review'
+                            : 'Verified at approval'}
+                      </div>
+                    </div>
+                    <Badge status={st} />
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+          <div className="flex gap-4">
+            {KPIS.map((k) => (
+              <StatCard key={k.label} k={k} />
+            ))}
+          </div>
+          <Card>
+            <div className="mb-4 flex items-center justify-between">
+              <SectionTitle>Recent Bookings</SectionTitle>
+              <span className="text-caption text-text-faint">
+                {h.name === 'Apollo Hospital'
+                  ? 'Live from the hospital instance'
+                  : 'Synced from the hospital instance'}
+              </span>
+            </div>
+            <TableShell columns={['Patient', 'Department', 'Date', 'Status']}>
+              {opsBookingsFor(h).map((b) => (
+                <tr key={b.id}>
+                  <td className={tdClass}>
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={b.patient} size={30} />
+                      <span className="text-text-strong font-medium">{b.patient}</span>
+                    </div>
+                  </td>
+                  <td className={tdClass}>{b.department}</td>
+                  <td className={tdClass}>{b.date}</td>
+                  <td className={tdClass}>
+                    <Badge status={b.status} />
+                  </td>
+                </tr>
+              ))}
+            </TableShell>
+          </Card>
+        </>
+      )}
+
+      {tab === 'Departments' && (
+        <Card>
+          <div className="mb-1 flex items-center gap-2.5">
+            <SectionTitle>Departments &amp; Doctors</SectionTitle>
+            <Badge status="Info">Read-only</Badge>
+          </div>
+          <div className="text-caption text-text-muted mb-3.5">
+            {h.name === 'Apollo Hospital'
+              ? "Live from the hospital's mbAdmin catalog — the hospital manages departments, doctors, fees and schedules itself."
+              : "Synced from the hospital's mbAdmin catalog. Hospitals manage their own departments, doctors, fees and schedules."}
+          </div>
+          <TableShell
+            columns={['Department', 'Doctors', 'Base Fee', 'Working Hours', 'Status']}
+            rightCols={['Doctors', 'Base Fee']}
+          >
+            {depts.map((d) => (
+              <tr key={d.name}>
+                <td className={cn(tdClass, 'text-text-strong font-medium')}>{d.name}</td>
+                <td className={cn(tdClass, 'text-right tabular-nums')}>{d.docs}</td>
+                <td className={cn(tdClass, 'text-right tabular-nums')}>{money(d.fee)}</td>
+                <td className={tdClass}>{d.hours}</td>
+                <td className={tdClass}>
+                  <Badge status={d.status} />
+                </td>
+              </tr>
+            ))}
+          </TableShell>
+          <div className="text-caption text-text-faint mt-3">
+            {depts.length} departments · {depts.reduce((a, d) => a + d.docs, 0)} doctors on the
+            roster
+          </div>
+        </Card>
+      )}
+
+      {tab === 'Doctors' && (
+        <Card>
+          <div className="mb-1 flex items-center gap-2.5">
+            <SectionTitle>Doctors Roster</SectionTitle>
+            <Badge status="Info">Read-only</Badge>
+          </div>
+          <div className="text-caption text-text-muted mb-3.5">
+            {h.name === 'Apollo Hospital'
+              ? "Live from the hospital's mbAdmin catalog — schedules, fees and leave are managed by the hospital."
+              : "Synced from the hospital's mbAdmin catalog — schedules, fees and leave are managed by the hospital."}
+          </div>
+          <div className="mb-4.5 flex flex-wrap items-center gap-3">
+            <FilterSelect
+              value={docDeptF}
+              options={['All', ...opsDeptsFor(h).map((d) => d.name)].map((x) =>
+                x === 'All' ? 'Dept: All' : x,
+              )}
+              onChange={(v) => setDocDeptF(v === 'Dept: All' ? 'All' : v)}
+            />
+            {docDeptF !== 'All' && (
+              <span
+                onClick={() => setDocDeptF('All')}
+                className="text-body text-blue cursor-pointer"
+              >
+                Clear
+              </span>
+            )}
+            <div className="flex-1"></div>
+            <span className="text-caption text-text-faint">
+              {docs.length} of {allDocs.length} doctors
+            </span>
+          </div>
+          <TableShell
+            columns={['Doctor', 'Department', 'Room', 'Fee', 'Rating', 'Availability', 'Status']}
+            rightCols={['Fee']}
+            sortKeys={{
+              Doctor: 'name',
+              Department: 'dept',
+              Room: 'room',
+              Fee: 'fee',
+              Rating: 'rating',
+              Status: 'status',
+            }}
+            sort={dSort}
+            onSort={dOnSort}
+          >
+            {docs.map((d, i) => (
+              <tr key={`${d.name}-${d.room}-${i}`}>
+                <td className={tdClass}>
+                  <div className="flex items-center gap-2.5">
+                    <Avatar name={d.name} size={32} />
+                    <div>
+                      <div className="text-body text-text-strong font-medium">{d.name}</div>
+                      <div className="text-caption text-text-muted">{d.spec}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className={tdClass}>{d.dept}</td>
+                <td className={cn(tdClass, 'tabular-nums')}>{d.room}</td>
+                <td className={cn(tdClass, 'text-right tabular-nums')}>{money(d.fee)}</td>
+                <td className={tdClass}>
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="star" size={13} className="text-y-500" />
+                    <span className="tabular-nums">{d.rating}</span>
+                  </span>
+                </td>
+                <td className={tdClass}>
+                  {d.days} days/wk
+                  {d.leave && (
+                    <div className="text-caption text-y-700">
+                      On leave {d.leave.from} – {d.leave.to}
+                    </div>
+                  )}
+                </td>
+                <td className={tdClass}>
+                  <Badge status={d.status} />
+                </td>
+              </tr>
+            ))}
+          </TableShell>
+        </Card>
+      )}
+
+      {tab === 'Billing & Settlements' && (
+        <>
+          <Card pad={16} className="flex flex-wrap items-center gap-3.5">
+            <div className="bg-blue-soft-bg text-text-navy flex size-10 flex-none items-center justify-center rounded-md">
+              <Icon name="layers" size={19} />
+            </div>
+            <div className="min-w-50 flex-1">
+              <div className="text-body text-text-strong font-medium">
+                {h.plan} · <span className="tabular-nums">{money(planPrice)}</span>/mo
+              </div>
+              <div className="text-caption text-text-muted">
+                {h.bookings.toLocaleString('en-IN')} of {limit.toLocaleString('en-IN')} monthly
+                bookings used ({quota}%)
+              </div>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => navigate(opsPath('plans'))}>
+              Plan Catalog
+            </Button>
+          </Card>
+          <Card>
+            <div className="mb-4 flex items-center justify-between">
+              <SectionTitle>Invoices</SectionTitle>
+              <span
+                onClick={() => navigate(`${opsPath('billing')}?tab=Invoices`)}
+                className="text-body text-blue cursor-pointer font-medium"
+              >
+                Open Billing
+              </span>
+            </div>
+            {invs.length ? (
+              <TableShell
+                columns={['Invoice', 'Amount', 'Issued', 'Due', 'Status', '']}
+                rightCols={['Amount']}
+              >
+                {invs.map((v) => (
+                  <tr key={v.id}>
+                    <td className={cn(tdClass, 'text-text-strong font-medium tabular-nums')}>
+                      {v.no}
+                    </td>
+                    <td className={cn(tdClass, 'text-right tabular-nums')}>{money(v.amount)}</td>
+                    <td className={tdClass}>{v.issued}</td>
+                    <td className={tdClass}>{v.due}</td>
+                    <td className={tdClass}>
+                      <Badge status={v.status} />
+                    </td>
+                    <td className={tdClass}>
+                      <IconBtn
+                        name="eye"
+                        box={36}
+                        size={16}
+                        title="View invoice"
+                        onClick={() => navigate(billingDetailPath('invoice-detail', v.id))}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </TableShell>
+            ) : (
+              <div className="text-body text-text-faint py-6 text-center">
+                No invoices issued to this hospital yet.
+              </div>
+            )}
+          </Card>
+          <Card>
+            <SectionTitle className="mb-4">Payment Transactions</SectionTitle>
+            {pays.length ? (
+              <TableShell
+                columns={['Transaction', 'Invoice', 'Method', 'Amount', 'Date', 'Status', '']}
+                rightCols={['Amount']}
+              >
+                {pays.map((v) => (
+                  <tr key={v.id}>
+                    <td className={cn(tdClass, 'text-text-strong font-medium tabular-nums')}>
+                      {v.txn}
+                    </td>
+                    <td className={cn(tdClass, 'tabular-nums')}>{v.inv}</td>
+                    <td className={tdClass}>{v.method}</td>
+                    <td className={cn(tdClass, 'text-right tabular-nums')}>{money(v.amount)}</td>
+                    <td className={tdClass}>{v.date}</td>
+                    <td className={tdClass}>
+                      <Badge status={v.status} />
+                    </td>
+                    <td className={tdClass}>
+                      <IconBtn
+                        name="eye"
+                        box={36}
+                        size={16}
+                        title="View payment"
+                        onClick={() => navigate(billingDetailPath('payment-detail', v.id))}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </TableShell>
+            ) : (
+              <div className="text-body text-text-faint py-6 text-center">
+                No payment transactions recorded for this hospital yet.
+              </div>
+            )}
+          </Card>
+          <Card>
+            <div className="mb-4 flex items-center justify-between">
+              <SectionTitle>Settlements</SectionTitle>
+              <span
+                onClick={() => navigate(opsPath('settlements'))}
+                className="text-body text-blue cursor-pointer font-medium"
+              >
+                Open Hospital Settlements
+              </span>
+            </div>
+            {setts.length ? (
+              <TableShell
+                columns={['Statement', 'Net Payable', 'Expected', 'Status']}
+                rightCols={['Net Payable']}
+              >
+                {setts.map((r) => (
+                  <tr key={r.id}>
+                    <td className={cn(tdClass, 'text-text-strong font-medium')}>
+                      {r.id}
+                      <div className="text-caption text-text-muted font-normal">{r.period}</div>
+                    </td>
+                    <td className={cn(tdClass, 'text-right tabular-nums')}>{money(r.net)}</td>
+                    <td className={tdClass}>{fmtDate(r.expected)}</td>
+                    <td className={tdClass}>
+                      <Badge status={r.status} />
+                      {r.utr && (
+                        <div className="text-caption text-text-muted mt-1 tabular-nums">
+                          {r.utr}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </TableShell>
+            ) : (
+              <div className="text-body text-text-faint py-6 text-center">
+                No settlement statements for this hospital yet.
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {tab === 'Activity' && (
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <SectionTitle>Compliance Activity</SectionTitle>
+            <span
+              onClick={() => navigate(opsPath('logs'))}
+              className="text-body text-blue cursor-pointer font-medium"
+            >
+              Open Compliance Logs
+            </span>
+          </div>
+          {acts.length ? (
+            <TableShell columns={['Action', 'Module', 'Timestamp', 'Severity']}>
+              {acts.map((l) => (
+                <tr key={l.id}>
+                  <td className={cn(tdClass, 'text-text-strong font-medium')}>
+                    {l.action}
+                    <div className="text-caption text-text-muted font-normal">{l.actor}</div>
+                  </td>
+                  <td className={tdClass}>{l.module}</td>
+                  <td className={tdClass}>{l.time}</td>
+                  <td className={tdClass}>
+                    <Badge status={l.sev} />
+                  </td>
+                </tr>
+              ))}
+            </TableShell>
+          ) : (
+            <div className="text-body text-text-faint py-7 text-center">
+              No logged actions reference {h.name} yet. Approvals, suspensions and settlement
+              releases will appear here.
+            </div>
+          )}
+        </Card>
+      )}
+
+      <OpsConfirm
+        open={modal === 'approve'}
+        onClose={() => setModal(null)}
+        icon="circle-check"
+        tone="success"
+        title="Approve this hospital?"
+        body={`${h.name} goes live immediately and can start taking bookings on Medibook.`}
+        confirmLabel={busy.approve ? 'Approving…' : 'Approve & Go Live'}
+        confirmVariant="primary"
+        busy={busy.approve}
+        onConfirm={() =>
+          run('approve', `${h.name} approved and live.`, () => {
+            approve(h.id);
+            setModal(null);
+          })
+        }
+      />
+      <OpsConfirm
+        open={modal === 'suspend'}
+        onClose={() => setModal(null)}
+        icon="ban"
+        tone={suspended ? 'success' : 'warning'}
+        title={suspended ? 'Reactivate this hospital?' : 'Suspend this hospital?'}
+        body={
+          suspended
+            ? `${h.name} regains access immediately and can take new bookings right away.`
+            : `${h.name} staff lose access immediately. Existing bookings are kept, but no new bookings can be made until reactivation.`
+        }
+        confirmLabel={
+          busy.suspend
+            ? suspended
+              ? 'Reactivating…'
+              : 'Suspending…'
+            : suspended
+              ? 'Reactivate'
+              : 'Suspend'
+        }
+        confirmVariant={suspended ? 'primary' : 'danger'}
+        busy={busy.suspend}
+        onConfirm={() =>
+          run('suspend', suspended ? `${h.name} reactivated.` : `${h.name} suspended.`, () => {
+            toggleSuspend(h.id);
+            setModal(null);
+          })
+        }
+      />
+      {modal === 'reject' && (
+        <div
+          onClick={() => setModal(null)}
+          className="animate-fade-in bg-text-strong/45 fixed inset-0 z-50 flex items-center justify-center p-6"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="animate-pop-in shadow-pop flex w-112 max-w-full flex-col gap-4 rounded-xl bg-white p-6"
+          >
+            <div className="flex items-center gap-3">
+              <div className="bg-d-100 text-d-500 flex size-11 flex-none items-center justify-center rounded-md">
+                <Icon name="ban" size={20} />
+              </div>
+              <SectionTitle size={20}>Reject this hospital?</SectionTitle>
+            </div>
+            <OpsField label="Reason for rejection" required>
+              <Select
+                value={reason}
+                placeholder="Select a reason"
+                options={[
+                  'Incomplete KYC documents',
+                  'Invalid GST or licence details',
+                  'Failed physical verification',
+                  'Duplicate registration',
+                ]}
+                onChange={setReason}
+                height={48}
+              />
+            </OpsField>
+            <p className="text-body text-text-muted m-0">
+              <b className="text-text-strong font-medium">{h.name}</b> is notified by email and
+              cannot take bookings. This decision is final.
+            </p>
+            <div className="border-border-soft flex justify-end gap-3 border-t pt-4">
+              <Button variant="secondary" onClick={() => setModal(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={
+                  !reason || busy.reject
+                    ? undefined
+                    : () =>
+                        run('reject', `${h.name} rejected. The hospital has been notified.`, () => {
+                          reject(h.id, reason);
+                          setModal(null);
+                        })
+                }
+                className={cn((!reason || busy.reject) && 'cursor-not-allowed opacity-50')}
+              >
+                {busy.reject ? 'Rejecting…' : 'Reject Hospital'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
