@@ -1,34 +1,37 @@
 # Claude Code — Generic Feature Prompt Pack (React + Vite)
 
-Three copy‑paste prompts for building any React feature with Claude Code on our
+Three copy-paste prompts for building any React feature with Claude Code on our
 standard repo:
 
 1. **Prompt A — Feature Layer Generation** (the main one; generates Domain +
    Infrastructure + Application for one feature).
-2. **Prompt A‑AUTH — Auth Add‑on** (paste *in addition to* Prompt A only when the
+2. **Prompt A-AUTH — Auth Add-on** (paste _in addition to_ Prompt A only when the
    feature is authentication/session).
 3. **Prompt B — Bug Fix** (strict, surgical fix from a reported UI/console error).
 
 > Assumptions baked in (from our standards docs):
-> Feature‑first Clean Architecture per `REACT_VITEJS_FEATURE_PROMPTS.md` ·
+> Feature-first Clean Architecture per `REACT_VITEJS_ARCHITECTURE.md` ·
 > Coding rules per `REACT_VITEJS_CODING_STANDARDS.md` ·
 > TanStack Query (server state) + Zustand (client state) · Axios · TypeScript (strict) ·
-> Zod (response validation at the boundary) · React Router · ESLint + Prettier ·
+> Zod (response validation at the boundary) · React Router ·
+> Tailwind CSS v4 (tokens in `@theme`, styling only in presentation) ·
+> oxlint (lint) + Prettier (format, sorts Tailwind classes) ·
 > The feature's **presentation layer is already developed** to the coding standards ·
-> QA gate = lint + tsc + tests + build, all zero‑error.
+> QA gate = `npm run lint` + `npm run typecheck` + `npm run build` (+ tests when
+> present), all zero-error.
 
 ---
 
 ## How to use
 
-1. Make sure the repo contains: `REACT_VITEJS_FEATURE_PROMPTS.md` and
-   `REACT_VITEJS_CODING_STANDARDS.md` (in the repo or alongside it), the target
+1. Make sure the repo contains: `REACT_VITEJS_ARCHITECTURE.md` and
+   `REACT_VITEJS_CODING_STANDARDS.md` (in `docs/` or alongside it), the target
    feature's **presentation layer already generated** (static UI, standards-compliant),
    and the `core/` + `app/` + `shared/` scaffolding.
 2. Open Claude Code at the **React project root**.
 3. Copy **Prompt A**, set `FEATURE_NAME`, and paste the feature's **API contract**
    (from the backend documentation) into the `API CONTRACT` block.
-4. If the feature is auth/session, also append **Prompt A‑AUTH**.
+4. If the feature is auth/session, also append **Prompt A-AUTH**.
 5. After the developer tests, if something breaks, use **Prompt B** with the exact
    UI + console/network errors.
 
@@ -39,8 +42,8 @@ standard repo:
 ```text
 You are a senior React + TypeScript engineer working in an existing, standardized
 repository. Architecture is feature-first Clean Architecture. Server state uses
-TanStack Query; client/UI state uses Zustand. You will build the non-UI layers for
-ONE feature only.
+TanStack Query; client/UI state uses Zustand; styling is Tailwind CSS v4. You will
+build the non-UI layers for ONE feature only.
 
 ================================================================
 FEATURE_NAME: <<e.g. authentication / dashboard / profile>>
@@ -48,12 +51,13 @@ FEATURE_NAME: <<e.g. authentication / dashboard / profile>>
 
 STEP 0 — READ BEFORE WRITING (do not skip, do not assume)
 1. Read the standards documents. These are BINDING:
-   - REACT_VITEJS_FEATURE_PROMPTS.md     (architecture, folder structure, layer roles)
-   - REACT_VITEJS_CODING_STANDARDS.md    (naming, TypeScript, state-management,
-                                          layer, error-handling, lint rules)
-   - package.json                        (pinned dependency versions — use these EXACT ones)
-   - tsconfig.json + vite.config.*       (strict mode, path aliases)
-   - eslint config + prettier config     (lint/format rules)
+   - docs/REACT_VITEJS_ARCHITECTURE.md      (architecture, folder structure, layer roles)
+   - docs/REACT_VITEJS_CODING_STANDARDS.md  (naming, TypeScript, state-management,
+                                             layer, styling, error-handling, lint rules)
+   - package.json                           (pinned dependency versions — use these EXACT ones)
+   - tsconfig.app.json + vite.config.ts     (strict mode; the `@` path alias — use it)
+   - .oxlintrc.json + .prettierrc           (lint/format rules)
+   - src/index.css                          (the @theme design tokens available to the UI)
 2. Read the feature's ALREADY-DEVELOPED presentation layer:
    `src/features/<FEATURE_NAME>/presentation/`  (screens + components).
    Infer from the UI exactly what data fields, states (loading/empty/error/success),
@@ -61,8 +65,8 @@ STEP 0 — READ BEFORE WRITING (do not skip, do not assume)
    your layers must supply.
 3. Read existing shared scaffolding before creating anything:
    `src/core/` (api/axios instance + interceptors, error/Failure + Result,
-   config/endpoint constants, storage wrappers) and `src/app/` (providers incl.
-   QueryClient setup, router).
+   config/endpoint constants, storage wrappers), `src/app/` (providers incl.
+   QueryClient setup, router), and `src/shared/` (ui primitives, lib/cn helper).
 
 STEP 1 — SOURCE OF TRUTH FOR THE BACKEND
 Use ONLY the API contract below (taken from the backend documentation). Do not invent
@@ -131,8 +135,9 @@ Connect the existing screens/components to the new hooks with the MINIMUM edits:
     the query's `isLoading / isError / data` flags. Empty is a state, not an accident.
   - Hook buttons/forms to mutation hooks and store actions.
 You MUST NOT change layout, styling, JSX structure, copy, colors, spacing, or any
-className/style values. Do not touch any OTHER feature's presentation. List every
-presentation file you edited and what changed (one line each).
+className/style values — the Tailwind classes already on the presentation layer are
+final. Do not touch any OTHER feature's presentation. List every presentation file
+you edited and what changed (one line each).
 (If you prefer to wire manually, delete STEP 3 before running this prompt.)
 
 STEP 4 — HARD RULES (these are also lint/review failures — full detail in
@@ -146,10 +151,16 @@ REACT_VITEJS_CODING_STANDARDS.md, which prevails on any conflict)
 - Zustand: client/UI state ONLY; actions defined inside the store; components read
   with selectors (never subscribe to the whole store); persist only with explicit
   reason, never tokens or server data.
+- Styling: Tailwind v4 utilities ONLY, in the presentation layer ONLY. Tokens come
+  from @theme in src/index.css (bg-brand, text-danger, ...) — no raw hex, no
+  arbitrary [13px] values, no new .css files, no inline style={{}}, no CSS-in-JS.
+  Conditional classes via the cn() helper from @/shared/lib/cn. Do NOT create
+  tailwind.config.js / postcss.config.js — v4 is CSS-first and already wired.
 - DTOs/entities: every response Zod-validated at the infrastructure boundary; DTO ->
   entity mapping before returning upward; entity fields `readonly`; no `any`.
 - TypeScript: strict mode; no `any`; no unsafe non-null `!`; prefer `??`, `?.`,
-  discriminated unions for multi-shape states; path-alias imports (no `../../..`).
+  discriminated unions for multi-shape states; path-alias imports via `@/`
+  (no `../../..`).
 - Naming: obey the standards doc (PascalCase components/types, camelCase functions,
   `use*` hooks, `*Query`/`*Mutation` suffixes, `<feature>.api.ts` / `.store.ts` /
   `.keys.ts` / `.repository.impl.ts` file patterns, UPPER_SNAKE constants, boolean
@@ -162,14 +173,17 @@ REACT_VITEJS_CODING_STANDARDS.md, which prevails on any conflict)
   missing; if you create one, follow the folder structure doc and report it explicitly.
 
 STEP 5 — SELF-VERIFY BEFORE YOU FINISH (the QA gate)
-Run / reason through and report results:
-  - `npm run format` (Prettier)        -> applied
-  - `npm run lint` (ESLint)            -> ZERO errors & warnings
-  - `npx tsc --noEmit`                 -> ZERO type errors
-  - `npm test`                         -> passing (if tests exist)
-  - `npm run build` (vite build)       -> succeeds
+Run and report results:
+  - `npm run format`        (Prettier + Tailwind class sort)  -> applied
+  - `npm run lint`          (oxlint)                          -> ZERO errors & warnings
+  - `npm run typecheck`     (tsc -b)                          -> ZERO type errors
+  - `npm test`                                                -> passing (only if a
+                                                                 test runner exists)
+  - `npm run build`         (tsc -b && vite build)            -> succeeds
+(Do NOT use bare `npx tsc --noEmit` — the root tsconfig is a solution file and that
+command checks zero files. `npm run typecheck` is the real check.)
 Then self-audit against the checklist in REACT_VITEJS_CODING_STANDARDS.md
-(Section: "Quick self-review checklist") and fix any CRITICAL or HIGH finding
+(Section 12: "Quick self-review checklist") and fix any CRITICAL or HIGH finding
 before reporting done.
 
 STEP 6 — OUTPUT
@@ -184,7 +198,7 @@ Build the <FEATURE_NAME> feature now.
 
 ---
 
-## PROMPT A‑AUTH — Authentication / Session Add‑on
+## PROMPT A-AUTH — Authentication / Session Add-on
 
 > Append this to **Prompt A** only when `FEATURE_NAME` is authentication/login/session.
 > It overrides anything weaker for token/session handling.
@@ -234,7 +248,7 @@ Security:
 
 ---
 
-## PROMPT B — Bug Fix (surgical, change‑nothing‑else)
+## PROMPT B — Bug Fix (surgical, change-nothing-else)
 
 > Use after the developer tests and finds a problem. Fill in BOTH error sections.
 
@@ -250,20 +264,22 @@ WHAT THE USER SEES IN THE UI:
  screenshot notes if any>>
 
 CONSOLE / NETWORK / BUILD OUTPUT (paste exactly):
-<<full stack trace / ESLint / tsc error / failed network request + response /
+<<full stack trace / oxlint / tsc error / failed network request + response /
  runtime exception>>
 
 RULES:
-- First, read REACT_VITEJS_CODING_STANDARDS.md and the relevant files, then state the
-  ROOT CAUSE in 1–3 lines BEFORE changing code.
+- First, read docs/REACT_VITEJS_CODING_STANDARDS.md and the relevant files, then
+  state the ROOT CAUSE in 1–3 lines BEFORE changing code.
 - Change ONLY the file(s) required for this fix. List each file and the exact lines
   changed. If a fix seems to require touching presentation layout/styling, STOP and
-  explain instead — do not change JSX structure or styles.
+  explain instead — do not change JSX structure, Tailwind classes, or styles.
 - Do NOT alter the API contract, other features, naming, formatting of unrelated
   code, or any working behavior. Do not move server data into Zustand (or UI state
   into the query cache) to "fix" it unless that misuse IS the root cause.
-- Keep it compliant: the fix must still pass `npm run lint`, `npx tsc --noEmit`, and
-  `npm run build`. Do not introduce new lint/type violations.
+- Do NOT introduce a new styling mechanism (.css files, inline styles, CSS-in-JS) —
+  styling stays Tailwind-only per the standards.
+- Keep it compliant: the fix must still pass `npm run lint`, `npm run typecheck`,
+  and `npm run build`. Do not introduce new lint/type violations.
 - If you are not confident of the root cause from the info given, ask for the
   specific additional log/file you need rather than guessing.
 
@@ -271,5 +287,5 @@ OUTPUT:
 1. Root cause (concise).
 2. The minimal diff (file + lines).
 3. Why this is the smallest correct fix and what you deliberately left untouched.
-4. Confirmation that lint + tsc + build still pass.
+4. Confirmation that lint + typecheck + build still pass.
 ```
