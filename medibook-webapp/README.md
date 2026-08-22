@@ -1,32 +1,49 @@
-# React + TypeScript + Vite
+# Medibook Web App
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite web application built on a feature-first Clean Architecture.
 
-Currently, two official plugins are available:
+**Stack:** React 19 · Vite · TypeScript (strict) · TanStack Query (server state) ·
+Zustand (client state) · Axios · Zod · React Router · Tailwind CSS v4 · oxlint + Prettier
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Getting started
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Scripts
+
+| Script                 | What it does                                     |
+| ---------------------- | ------------------------------------------------ |
+| `npm run dev`          | Start the Vite dev server                        |
+| `npm run build`        | Type-check (`tsc -b`) and build for production   |
+| `npm run lint`         | Lint with oxlint (zero errors/warnings required) |
+| `npm run typecheck`    | Type-check only (`tsc -b`)                       |
+| `npm run format`       | Format with Prettier (sorts Tailwind classes)    |
+| `npm run format:check` | Verify formatting without writing                |
+| `npm run preview`      | Preview the production build                     |
+
+All of `lint`, `typecheck`, `format:check`, and `build` must pass before merging.
+
+## Documentation — read before writing code
+
+The binding specs live in [`docs/`](docs/CLAUDE.md):
+
+- [`docs/REACT_VITEJS_ARCHITECTURE.md`](docs/REACT_VITEJS_ARCHITECTURE.md) — the
+  architecture standard (4 layers, folder structure, state-management split,
+  Tailwind styling layer).
+- [`docs/REACT_VITEJS_CODING_STANDARDS.md`](docs/REACT_VITEJS_CODING_STANDARDS.md) —
+  the coding rulebook (naming, TypeScript, state, styling, error handling, QA gate).
+- [`docs/REACT_VITEJS_CLAUDE_FEATURE_PROMPTS.md`](docs/REACT_VITEJS_CLAUDE_FEATURE_PROMPTS.md) —
+  copy-paste prompts for generating feature layers with Claude Code.
+- [`docs/README.md`](docs/README.md) — how to scaffold a new project with
+  `docs/scaffold-structure.sh`.
+
+AI coding agents: start at [`CLAUDE.md`](CLAUDE.md).
+
+## Linting notes
+
+Linting uses [oxlint](https://oxc.rs) (config: `.oxlintrc.json`). For type-aware
+rules, install `oxlint-tsgolint` and set `"options": { "typeAware": true }` in
+`.oxlintrc.json`.
